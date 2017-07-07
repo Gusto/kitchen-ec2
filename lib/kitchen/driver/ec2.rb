@@ -401,25 +401,21 @@ module Kitchen
 
       def submit_spot(state) # rubocop:disable Metrics/AbcSize
         debug("Creating EC2 Spot Instance..")
-
-        spot_request_id = create_spot_request
-        # deleting the instance cancels the request, but deleting the request
-        # does not affect the instance
-        state[:spot_request_id] = spot_request_id
+        state[:spot_request_id] = create_spot_request
         retry_on_error([::Aws::EC2::Errors::RequestLimitExceeded, ::Aws::Waiters::Errors::UnexpectedError], /.*/) do
           ec2.client.wait_until(
             :spot_instance_request_fulfilled,
-            :spot_instance_request_ids => [spot_request_id]
+            :spot_instance_request_ids => [state[:spot_request_id]]
           ) do |w|
             w.max_attempts = config[:retryable_tries]
             w.delay = config[:retryable_sleep]
             w.before_attempt do |attempts|
               c = attempts * config[:retryable_sleep]
               t = config[:retryable_tries] * config[:retryable_sleep]
-              info "Waited #{c}/#{t}s for spot request <#{spot_request_id}> to become fulfilled."
+              info "Waited #{c}/#{t}s for spot request <#{state[:spot_request_id]}> to become fulfilled."
             end
           end
-          ec2.get_instance_from_spot_request(spot_request_id)
+          ec2.get_instance_from_spot_request(state[:spot_request_id])
         end
       end
 
