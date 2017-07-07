@@ -277,7 +277,7 @@ module Kitchen
       def destroy_spot_request(state)
         return if state[:spot_request_id].nil?
 
-        spot_request = client.describe_spot_instance_requests(spot_instance_request_ids: [state[:spot_request_id]]).spot_instance_requests.first
+        spot_request = ec2.client.describe_spot_instance_requests(spot_instance_request_ids: [state[:spot_request_id]]).spot_instance_requests.first
         if spot_request.instance_id
           begin
             retry_on_aws_ec2_error do |r|
@@ -406,7 +406,7 @@ module Kitchen
         # deleting the instance cancels the request, but deleting the request
         # does not affect the instance
         state[:spot_request_id] = spot_request_id
-        retry_on_error(::Aws::Waiters::Errors::UnexpectedError, /.*/) do
+        retry_on_error([::Aws::EC2::Errors::RequestLimitExceeded, ::Aws::Waiters::Errors::UnexpectedError], /.*/) do
           ec2.client.wait_until(
             :spot_instance_request_fulfilled,
             :spot_instance_request_ids => [spot_request_id]

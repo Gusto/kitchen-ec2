@@ -547,17 +547,36 @@ describe Kitchen::Driver::Ec2 do
     end
 
     context "when state has a spot request" do
-      let(:state) { { :server_id => "id", :hostname => "name", :spot_request_id => "spot" } }
+      let(:state) { { :server_id => 'id', :hostname => "name", :spot_request_id => "spot" } }
+      let(:spot_instance_request) { double('spot instance request', instance_id: 'id') }
 
-      it "destroys the server" do
-        expect(client).to receive(:get_instance).with("id").and_return(server)
-        expect(instance).to receive_message_chain("transport.connection.close")
-        expect(server).to receive(:terminate)
-        expect(actual_client).to receive(:cancel_spot_instance_requests).with(
-          :spot_instance_request_ids => ["spot"]
-        )
-        driver.destroy(state)
-        expect(state).to eq({})
+      context 'when the spot request already has an instance_id' do
+        it "destroys the server" do
+          expect(client).to receive(:get_instance).with("id").twice.and_return(server)
+          expect(instance).to receive_message_chain("transport.connection.close")
+          expect(server).to receive(:terminate).twice
+
+          expect(actual_client).to receive_message_chain(:describe_spot_instance_requests, :spot_instance_requests) { [spot_instance_request] }
+          expect(actual_client).to receive(:cancel_spot_instance_requests).with(
+            :spot_instance_request_ids => ["spot"]
+          )
+          driver.destroy(state)
+          expect(state).to eq({})
+        end
+      end
+
+      context 'when the spot request does not yet have an instance_id' do
+        it "destroys the server" do
+          expect(client).to receive(:get_instance).with("id").and_return(server)
+          expect(instance).to receive_message_chain("transport.connection.close")
+          expect(server).to receive(:terminate).once
+          expect(actual_client).to receive_message_chain('describe_spot_instance_requests.spot_instance_requests.first.instance_id').and_return(nil)
+          expect(actual_client).to receive(:cancel_spot_instance_requests).with(
+            :spot_instance_request_ids => ["spot"]
+          )
+          driver.destroy(state)
+          expect(state).to eq({})
+        end
       end
     end
   end
