@@ -419,8 +419,8 @@ module Kitchen
               info "Waited #{c}/#{t}s for spot request <#{spot_request_id}> to become fulfilled."
             end
           end
+          ec2.get_instance_from_spot_request(spot_request_id)
         end
-        ec2.get_instance_from_spot_request(spot_request_id)
       end
 
       def create_spot_request

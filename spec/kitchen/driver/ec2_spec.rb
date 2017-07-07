@@ -257,6 +257,24 @@ describe Kitchen::Driver::Ec2 do
       driver.submit_spot(state)
       expect(state).to eq(:spot_request_id => "id")
     end
+
+    context 'when request to get instance from spot request fails' do
+      it "submits the server request" do
+        expect(generator).to receive(:ec2_instance_data).and_return({})
+        expect(actual_client).to receive(:request_spot_instances).with(
+          :spot_price => "",
+          :launch_specification => {},
+          :valid_until => Time.now + (config[:retryable_tries] * config[:retryable_sleep]),
+          :block_duration_minutes => 60
+        ).and_return(response)
+        expect(actual_client).to receive(:wait_until).twice
+        # First get_instance_from_spot_request will raise a RequestLimitExceeded exception, then return fine
+        expect(client).to receive(:get_instance_from_spot_request).and_raise(::Aws::EC2::Errors::RequestLimitExceeded.new(nil, "Request limit exceeded!"))
+        expect(client).to receive(:get_instance_from_spot_request).with("id")
+        expect { driver.submit_spot(state) }.not_to raise_error
+        expect(state).to eq(:spot_request_id => "id")
+      end
+    end
   end
 
   describe "#tag_server" do
