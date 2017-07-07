@@ -406,7 +406,7 @@ module Kitchen
         # deleting the instance cancels the request, but deleting the request
         # does not affect the instance
         state[:spot_request_id] = spot_request_id
-        retry_on_aws_waiters_error do
+        retry_on_error(::Aws::Waiters::Errors::UnexpectedError, /.*/) do
           ec2.client.wait_until(
             :spot_instance_request_fulfilled,
             :spot_instance_request_ids => [spot_request_id]
