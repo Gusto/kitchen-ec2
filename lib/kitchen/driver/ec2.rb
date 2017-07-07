@@ -245,6 +245,20 @@ module Kitchen
       end
 
       def destroy(state)
+        begin
+          destroy_instance(state)
+        rescue Aws::EC2::Errors::ServiceError, Aws::Waiters::Errors
+          info("Could not destroy instance")
+        end
+
+        begin
+          destroy_spot_request(state)
+        rescue Aws::EC2::Errors::ServiceError, Aws::Waiters::Errors
+          info("Could not destroy spot request")
+        end
+      end
+
+      def destroy_instance(state)
         return if state[:server_id].nil?
 
         retry_on_aws_ec2_error do |r|
@@ -254,16 +268,36 @@ module Kitchen
             instance.transport.connection(state).close
             server.terminate
           end
-          if state[:spot_request_id]
-            debug("Deleting spot request <#{state[:server_id]}>")
-            ec2.client.cancel_spot_instance_requests(
-              :spot_instance_request_ids => [state[:spot_request_id]]
-            )
-            state.delete(:spot_request_id)
-          end
           info("EC2 instance <#{state[:server_id]}> destroyed.")
           state.delete(:server_id)
           state.delete(:hostname)
+        end
+      end
+
+      def destroy_spot_request(state)
+        return if state[:spot_request_id].nil?
+
+        spot_request = client.describe_spot_instance_requests(spot_instance_request_ids: [state[:spot_request_id]]).spot_instance_requests.first
+        if spot_request.instance_id
+          begin
+            retry_on_aws_ec2_error do |r|
+              info("Attempting to destroy instance <#{spot_request.instance_id}>, #{r} retries")
+              server = ec2.get_instance(spot_request.instance_id)
+              server.terminate
+              info("EC2 instance <#{spot_request.instance_id}> destroyed.")
+            end
+          rescue Aws::EC2::Errors::ServiceError, Aws::Waiters::Errors
+            info("EC2 instance <#{spot_request.instance_id}> attached to spot request could not be destroyed.")
+          end
+        end
+
+        retry_on_aws_ec2_error do |r|
+          info("Attempting to destroy spot request <#{state[:spot_request_id]}>, #{r} retries")
+          ec2.client.cancel_spot_instance_requests(
+            :spot_instance_request_ids => [state[:spot_request_id]]
+          )
+          info("Sport request <#{state[:spot_request_id]}> destroyed.")
+          state.delete(:spot_request_id)
         end
       end
 
