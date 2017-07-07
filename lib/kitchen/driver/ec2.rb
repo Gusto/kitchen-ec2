@@ -247,13 +247,13 @@ module Kitchen
       def destroy(state)
         begin
           destroy_instance(state)
-        rescue Aws::EC2::Errors::ServiceError, Aws::Waiters::Errors
+        rescue ::Aws::EC2::Errors::ServiceError, ::Aws::Waiters::Errors
           info("Could not destroy instance")
         end
 
         begin
           destroy_spot_request(state)
-        rescue Aws::EC2::Errors::ServiceError, Aws::Waiters::Errors
+        rescue ::Aws::EC2::Errors::ServiceError, ::Aws::Waiters::Errors
           info("Could not destroy spot request")
         end
       end
@@ -286,7 +286,7 @@ module Kitchen
               server.terminate
               info("EC2 instance <#{spot_request.instance_id}> destroyed.")
             end
-          rescue Aws::EC2::Errors::ServiceError, Aws::Waiters::Errors
+          rescue ::Aws::EC2::Errors::ServiceError, ::Aws::Waiters::Errors
             info("EC2 instance <#{spot_request.instance_id}> attached to spot request could not be destroyed.")
           end
         end
