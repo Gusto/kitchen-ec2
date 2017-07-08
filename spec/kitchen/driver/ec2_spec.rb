@@ -257,6 +257,24 @@ describe Kitchen::Driver::Ec2 do
       driver.submit_spot(state)
       expect(state).to eq(:spot_request_id => "id")
     end
+
+    context 'when request to get instance from spot request fails' do
+      it "submits the server request" do
+        expect(generator).to receive(:ec2_instance_data).and_return({})
+        expect(actual_client).to receive(:request_spot_instances).with(
+          :spot_price => "",
+          :launch_specification => {},
+          :valid_until => Time.now + (config[:retryable_tries] * config[:retryable_sleep]),
+          :block_duration_minutes => 60
+        ).and_return(response)
+        expect(actual_client).to receive(:wait_until).twice
+        # First get_instance_from_spot_request will raise a RequestLimitExceeded exception, then return fine
+        expect(client).to receive(:get_instance_from_spot_request).and_raise(::Aws::EC2::Errors::RequestLimitExceeded.new(nil, "Request limit exceeded!"))
+        expect(client).to receive(:get_instance_from_spot_request).with("id")
+        expect { driver.submit_spot(state) }.not_to raise_error
+        expect(state).to eq(:spot_request_id => "id")
+      end
+    end
   end
 
   describe "#tag_server" do
@@ -547,17 +565,36 @@ describe Kitchen::Driver::Ec2 do
     end
 
     context "when state has a spot request" do
-      let(:state) { { :server_id => "id", :hostname => "name", :spot_request_id => "spot" } }
+      let(:state) { { :server_id => 'id', :hostname => "name", :spot_request_id => "spot" } }
+      let(:spot_instance_request) { double('spot instance request', instance_id: 'id') }
 
-      it "destroys the server" do
-        expect(client).to receive(:get_instance).with("id").and_return(server)
-        expect(instance).to receive_message_chain("transport.connection.close")
-        expect(server).to receive(:terminate)
-        expect(actual_client).to receive(:cancel_spot_instance_requests).with(
-          :spot_instance_request_ids => ["spot"]
-        )
-        driver.destroy(state)
-        expect(state).to eq({})
+      context 'when the spot request already has an instance_id' do
+        it "destroys the server" do
+          expect(client).to receive(:get_instance).with("id").twice.and_return(server)
+          expect(instance).to receive_message_chain("transport.connection.close")
+          expect(server).to receive(:terminate).twice
+
+          expect(actual_client).to receive_message_chain(:describe_spot_instance_requests, :spot_instance_requests) { [spot_instance_request] }
+          expect(actual_client).to receive(:cancel_spot_instance_requests).with(
+            :spot_instance_request_ids => ["spot"]
+          )
+          driver.destroy(state)
+          expect(state).to eq({})
+        end
+      end
+
+      context 'when the spot request does not yet have an instance_id' do
+        it "destroys the server" do
+          expect(client).to receive(:get_instance).with("id").and_return(server)
+          expect(instance).to receive_message_chain("transport.connection.close")
+          expect(server).to receive(:terminate).once
+          expect(actual_client).to receive_message_chain('describe_spot_instance_requests.spot_instance_requests.first.instance_id').and_return(nil)
+          expect(actual_client).to receive(:cancel_spot_instance_requests).with(
+            :spot_instance_request_ids => ["spot"]
+          )
+          driver.destroy(state)
+          expect(state).to eq({})
+        end
       end
     end
   end

@@ -245,6 +245,20 @@ module Kitchen
       end
 
       def destroy(state)
+        begin
+          destroy_instance(state)
+        rescue ::Aws::EC2::Errors::ServiceError, ::Aws::Waiters::Errors
+          info("Could not destroy instance")
+        end
+
+        begin
+          destroy_spot_request(state)
+        rescue ::Aws::EC2::Errors::ServiceError, ::Aws::Waiters::Errors
+          info("Could not destroy spot request")
+        end
+      end
+
+      def destroy_instance(state)
         return if state[:server_id].nil?
 
         retry_on_aws_ec2_error do |r|
@@ -254,16 +268,36 @@ module Kitchen
             instance.transport.connection(state).close
             server.terminate
           end
-          if state[:spot_request_id]
-            debug("Deleting spot request <#{state[:server_id]}>")
-            ec2.client.cancel_spot_instance_requests(
-              :spot_instance_request_ids => [state[:spot_request_id]]
-            )
-            state.delete(:spot_request_id)
-          end
           info("EC2 instance <#{state[:server_id]}> destroyed.")
           state.delete(:server_id)
           state.delete(:hostname)
+        end
+      end
+
+      def destroy_spot_request(state)
+        return if state[:spot_request_id].nil?
+
+        spot_request = ec2.client.describe_spot_instance_requests(spot_instance_request_ids: [state[:spot_request_id]]).spot_instance_requests.first
+        if spot_request.instance_id
+          begin
+            retry_on_aws_ec2_error do |r|
+              info("Attempting to destroy instance <#{spot_request.instance_id}>, #{r} retries")
+              server = ec2.get_instance(spot_request.instance_id)
+              server.terminate
+              info("EC2 instance <#{spot_request.instance_id}> destroyed.")
+            end
+          rescue ::Aws::EC2::Errors::ServiceError, ::Aws::Waiters::Errors
+            info("EC2 instance <#{spot_request.instance_id}> attached to spot request could not be destroyed.")
+          end
+        end
+
+        retry_on_aws_ec2_error do |r|
+          info("Attempting to destroy spot request <#{state[:spot_request_id]}>, #{r} retries")
+          ec2.client.cancel_spot_instance_requests(
+            :spot_instance_request_ids => [state[:spot_request_id]]
+          )
+          info("Sport request <#{state[:spot_request_id]}> destroyed.")
+          state.delete(:spot_request_id)
         end
       end
 
@@ -367,26 +401,22 @@ module Kitchen
 
       def submit_spot(state) # rubocop:disable Metrics/AbcSize
         debug("Creating EC2 Spot Instance..")
-
-        spot_request_id = create_spot_request
-        # deleting the instance cancels the request, but deleting the request
-        # does not affect the instance
-        state[:spot_request_id] = spot_request_id
-        retry_on_aws_waiters_error do
+        state[:spot_request_id] = create_spot_request
+        retry_on_error([::Aws::EC2::Errors::RequestLimitExceeded, ::Aws::Waiters::Errors::UnexpectedError], /.*/) do
           ec2.client.wait_until(
             :spot_instance_request_fulfilled,
-            :spot_instance_request_ids => [spot_request_id]
+            :spot_instance_request_ids => [state[:spot_request_id]]
           ) do |w|
             w.max_attempts = config[:retryable_tries]
             w.delay = config[:retryable_sleep]
             w.before_attempt do |attempts|
               c = attempts * config[:retryable_sleep]
               t = config[:retryable_tries] * config[:retryable_sleep]
-              info "Waited #{c}/#{t}s for spot request <#{spot_request_id}> to become fulfilled."
+              info "Waited #{c}/#{t}s for spot request <#{state[:spot_request_id]}> to become fulfilled."
             end
           end
+          ec2.get_instance_from_spot_request(state[:spot_request_id])
         end
-        ec2.get_instance_from_spot_request(spot_request_id)
       end
 
       def create_spot_request
