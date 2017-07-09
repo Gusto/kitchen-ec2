@@ -562,6 +562,34 @@ describe Kitchen::Driver::Ec2 do
         driver.destroy(state)
         expect(state).to eq({})
       end
+
+      context 'when a SCP exception is raised during connection shutdown' do
+        before do
+          allow(instance).to receive_message_chain("transport.connection.close").and_raise(Net::SCP::Error)
+        end
+
+        it "destroys the server" do
+          expect(client).to receive(:get_instance).with("id").and_return(server)
+          expect(instance).to receive_message_chain("transport.connection.close")
+          expect(server).to receive(:terminate)
+          driver.destroy(state)
+          expect(state).to eq({})
+        end
+      end
+
+      context 'when a SSH exception is raised during connection shutdown' do
+        before do
+          allow(instance).to receive_message_chain("transport.connection.close").and_raise(Net::SSH::Exception)
+        end
+
+        it "destroys the server" do
+          expect(client).to receive(:get_instance).with("id").and_return(server)
+          expect(instance).to receive_message_chain("transport.connection.close")
+          expect(server).to receive(:terminate)
+          driver.destroy(state)
+          expect(state).to eq({})
+        end
+      end
     end
 
     context "when state has a spot request" do

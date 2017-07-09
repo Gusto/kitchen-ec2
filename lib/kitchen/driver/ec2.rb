@@ -265,7 +265,11 @@ module Kitchen
           info("Attempting to destroy instance <#{state[:server_id]}>, #{r} retries")
           server = ec2.get_instance(state[:server_id])
           unless server.nil?
-            instance.transport.connection(state).close
+            begin
+              instance.transport.connection(state).close
+            rescue Net::SSH::Exception, Net::SCP::Error
+              debug('Could not close transport connection.')
+            end
             server.terminate
           end
           info("EC2 instance <#{state[:server_id]}> destroyed.")
