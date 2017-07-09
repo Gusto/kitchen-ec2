@@ -21,6 +21,6 @@ module Kitchen
   module Driver
 
     # Version string for EC2 Test Kitchen driver
-    EC2_VERSION = "1.3.3.gusto"
+    EC2_VERSION = "1.3.4.gusto"
   end
 end
